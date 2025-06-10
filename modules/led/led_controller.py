@@ -216,30 +216,6 @@ class LEDController:
         logger.debug(response)
         return response
 
-def effect_loading(led_controller: LEDController):
-    res = led_controller.set_effect(47, hex='#ffa000', hex2='#000000', palette=0, speed=150, intensity=150)
-    if res.get('is_on', False):
-        return True
-    else:
-        return False
-
-def effect_idle(led_controller: LEDController):
-    led_controller.set_preset(1)
-
-
-def effect_connected(led_controller: LEDController):
-    res = led_controller.set_effect(0, hex='#08ff00', brightness=100)
-    time.sleep(1)
-    led_controller.set_effect(0, brightness=0)  # Turn off
-    time.sleep(0.5)
-    res = led_controller.set_effect(0, hex='#08ff00', brightness=100)
-    time.sleep(1)
-    effect_idle(led_controller)
-    if res.get('is_on', False):
-        return True
-    else:
-        return False
-
     def enable_position_sync(self, enabled: bool = True, mode: str = "position") -> None:
         """
         Enable or disable position-based LED sync
@@ -365,6 +341,31 @@ def effect_connected(led_controller: LEDController):
             intensity=200,  # High intensity for visible trail
             brightness=brightness
         )
+
+
+def effect_loading(led_controller: LEDController):
+    res = led_controller.set_effect(47, hex='#ffa000', hex2='#000000', palette=0, speed=150, intensity=150)
+    if res.get('is_on', False):
+        return True
+    else:
+        return False
+
+def effect_idle(led_controller: LEDController):
+    led_controller.set_preset(1)
+
+
+def effect_connected(led_controller: LEDController):
+    res = led_controller.set_effect(0, hex='#08ff00', brightness=100)
+    time.sleep(1)
+    led_controller.set_effect(0, brightness=0)  # Turn off
+    time.sleep(0.5)
+    res = led_controller.set_effect(0, hex='#08ff00', brightness=100)
+    time.sleep(1)
+    effect_idle(led_controller)
+    if res.get('is_on', False):
+        return True
+    else:
+        return False
 
 
 def effect_playing(led_controller: LEDController):
