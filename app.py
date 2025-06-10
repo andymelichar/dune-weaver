@@ -104,7 +104,7 @@ class PositionSyncRequest(BaseModel):
     enabled: bool
 
 class PositionSyncConfigRequest(BaseModel):
-    sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail"
+    sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail", "demo"
     throttle_ms: Optional[int] = 50  # Minimum ms between sync updates
 
 # Store active WebSocket connections
@@ -654,7 +654,7 @@ async def configure_position_sync(request: PositionSyncConfigRequest):
             raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
         
         # Validate sync mode
-        valid_modes = ["position", "speed", "progress", "trail"]
+        valid_modes = ["position", "speed", "progress", "trail", "demo"]
         if request.sync_mode not in valid_modes:
             raise HTTPException(status_code=400, detail=f"Invalid sync mode. Must be one of: {valid_modes}")
         
@@ -673,6 +673,44 @@ async def configure_position_sync(request: PositionSyncConfigRequest):
         }
     except Exception as e:
         logger.error(f"Failed to configure position sync: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/test_position_sync")
+async def test_position_sync(request: CoordinateRequest):
+    """Manually test position sync with specific theta/rho coordinates"""
+    try:
+        if not state.led_controller:
+            raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
+        
+        if not state.led_controller.position_sync_enabled:
+            raise HTTPException(status_code=400, detail="Position sync is not enabled.")
+        
+        # Force a position sync call with the provided coordinates
+        theta = request.theta
+        rho = request.rho
+        
+        logger.info(f"Manual position sync test: theta={theta:.3f}, rho={rho:.3f}, mode={state.led_controller.sync_mode}")
+        
+        # Temporarily disable throttling for manual test
+        original_throttle = state.led_controller.sync_throttle_ms
+        state.led_controller.sync_throttle_ms = 0
+        
+        result = state.led_controller.sync_position(theta, rho, progress=0.5, speed=0.1)
+        
+        # Restore original throttling
+        state.led_controller.sync_throttle_ms = original_throttle
+        
+        logger.info(f"Manual position sync result: {result}")
+        
+        return {
+            "success": True,
+            "theta": theta,
+            "rho": rho,
+            "sync_mode": state.led_controller.sync_mode,
+            "result": result
+        }
+    except Exception as e:
+        logger.error(f"Failed to test position sync: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/skip_pattern")

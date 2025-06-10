@@ -513,6 +513,7 @@ def move_polar(theta, rho, progress_info=None):
     
     # Sync LEDs with ball position if LED controller is available and position sync is enabled
     if hasattr(state, 'led_controller') and state.led_controller and hasattr(state.led_controller, 'position_sync_enabled'):
+        logger.debug(f"LED controller available, position_sync_enabled: {state.led_controller.position_sync_enabled}")
         if state.led_controller.position_sync_enabled:
             try:
                 # Calculate movement speed for speed-based effects
@@ -524,9 +525,13 @@ def move_polar(theta, rho, progress_info=None):
                     current_coord, total_coords, _, _ = progress_info
                     progress = current_coord / total_coords if total_coords > 0 else 0
                 
-                state.led_controller.sync_position(theta, rho, progress=progress, speed=movement_speed)
+                logger.debug(f"Syncing LED position: theta={theta:.3f}, rho={rho:.3f}, mode={state.led_controller.sync_mode}")
+                result = state.led_controller.sync_position(theta, rho, progress=progress, speed=movement_speed)
+                logger.debug(f"LED sync result: {result}")
             except Exception as e:
-                logger.debug(f"LED position sync error: {e}")
+                logger.error(f"LED position sync error: {e}")
+    else:
+        logger.debug(f"LED sync not available - led_controller: {state.led_controller}, has_position_sync: {hasattr(state.led_controller, 'position_sync_enabled') if state.led_controller else False}")
     
 def pause_execution():
     """Pause pattern execution using asyncio Event."""

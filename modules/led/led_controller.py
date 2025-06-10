@@ -224,7 +224,7 @@ class LEDController:
             mode: Sync mode - "position", "speed", "progress", or "trail"
         """
         self.position_sync_enabled = enabled
-        if mode in ["position", "speed", "progress", "trail"]:
+        if mode in ["position", "speed", "progress", "trail", "demo"]:
             self.sync_mode = mode
         logger.info(f"Position sync {'enabled' if enabled else 'disabled'} with mode: {self.sync_mode}")
 
@@ -244,11 +244,11 @@ class LEDController:
         hue = int((normalized_theta / (2 * math.pi)) * 360)
         return hue
 
-    def _rho_to_brightness(self, rho: float, min_brightness: int = 30, max_brightness: int = 255) -> int:
+    def _rho_to_brightness(self, rho: float, min_brightness: int = 50, max_brightness: int = 255) -> int:
         """Convert rho (0-1) to brightness with minimum threshold"""
         # Ensure rho is in 0-1 range
         rho = max(0.0, min(1.0, rho))
-        # Map to brightness range with minimum threshold
+        # Map to brightness range with minimum threshold - use higher minimum for visibility
         brightness = int(min_brightness + (rho * (max_brightness - min_brightness)))
         return brightness
 
@@ -278,6 +278,8 @@ class LEDController:
                 return self._sync_progress_mode(theta, rho, progress or 0)
             elif self.sync_mode == "trail":
                 return self._sync_trail_mode(theta, rho)
+            elif self.sync_mode == "demo":
+                return self._sync_demo_mode(theta, rho)
             else:
                 return {"message": f"Unknown sync mode: {self.sync_mode}"}
         except Exception as e:
@@ -289,6 +291,8 @@ class LEDController:
         hue = self._theta_to_hue(theta)
         brightness = self._rho_to_brightness(rho)
         r, g, b = self._hsv_to_rgb(hue, 1.0, 1.0)  # Full saturation
+        
+        logger.debug(f"Position sync: theta={theta:.3f} -> hue={hue}, rho={rho:.3f} -> brightness={brightness}, RGB=({r},{g},{b})")
         
         return self.set_effect(
             effect_index=0,  # Solid color
@@ -340,6 +344,36 @@ class LEDController:
             speed=150,  # Moderate speed for smooth trail
             intensity=200,  # High intensity for visible trail
             brightness=brightness
+        )
+
+    def _sync_demo_mode(self, theta: float, rho: float) -> Dict:
+        """Demo mode: Very obvious color changes for testing and debugging"""
+        hue = self._theta_to_hue(theta)
+        
+        # Make brightness changes very dramatic
+        brightness = 100 + int(rho * 155)  # Range 100-255 for high visibility
+        
+        # Use pure colors for maximum contrast
+        if hue < 60:  # Red zone
+            r, g, b = 255, 0, 0
+        elif hue < 120:  # Yellow zone  
+            r, g, b = 255, 255, 0
+        elif hue < 180:  # Green zone
+            r, g, b = 0, 255, 0
+        elif hue < 240:  # Cyan zone
+            r, g, b = 0, 255, 255
+        elif hue < 300:  # Blue zone
+            r, g, b = 0, 0, 255
+        else:  # Magenta zone
+            r, g, b = 255, 0, 255
+        
+        logger.info(f"DEMO MODE: theta={theta:.3f} -> hue={hue} -> color zone, rho={rho:.3f} -> brightness={brightness}")
+        
+        return self.set_effect(
+            effect_index=0,  # Solid color for immediate response
+            r=r, g=g, b=b,
+            brightness=brightness,
+            transition=0  # Instant change
         )
 
 
