@@ -45,6 +45,10 @@ class AppState:
         self._playlist_mode = "loop"
         self._pause_time = 0
         self._clear_pattern = "none"
+        # Position sync settings
+        self.position_sync_enabled = False
+        self.position_sync_mode = "position"
+        self.position_sync_throttle_ms = 50
         self.load()
 
     @property
@@ -157,7 +161,10 @@ class AppState:
             "pause_time": self._pause_time,
             "clear_pattern": self._clear_pattern,
             "port": self.port,
-            "wled_ip": self.wled_ip
+            "wled_ip": self.wled_ip,
+            "position_sync_enabled": self.position_sync_enabled,
+            "position_sync_mode": self.position_sync_mode,
+            "position_sync_throttle_ms": self.position_sync_throttle_ms
         }
 
     def from_dict(self, data):
@@ -184,6 +191,10 @@ class AppState:
         self._clear_pattern = data.get("clear_pattern", "none")
         self.port = data.get("port", None)
         self.wled_ip = data.get('wled_ip', None)
+        # Position sync settings with defaults
+        self.position_sync_enabled = data.get("position_sync_enabled", False)
+        self.position_sync_mode = data.get("position_sync_mode", "position")
+        self.position_sync_throttle_ms = data.get("position_sync_throttle_ms", 50)
 
     def save(self):
         """Save the current state to a JSON file."""

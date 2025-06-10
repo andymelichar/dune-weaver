@@ -273,13 +273,17 @@ async def run_theta_rho_file(file_path, is_playlist=False):
                     if state.led_controller:
                         effect_playing(state.led_controller)
 
-                move_polar(theta, rho)
+                # Calculate progress info before moving
+                elapsed_time = time.time() - start_time
+                estimated_remaining_time = (total_coordinates - (i + 1)) / pbar.format_dict['rate'] if pbar.format_dict['rate'] and total_coordinates else 0
+                progress_info = (i + 1, total_coordinates, estimated_remaining_time, elapsed_time)
+                
+                # Move to the coordinate with progress information
+                move_polar(theta, rho, progress_info)
                 
                 # Update progress for all coordinates including the first one
                 pbar.update(1)
-                elapsed_time = time.time() - start_time
-                estimated_remaining_time = (total_coordinates - (i + 1)) / pbar.format_dict['rate'] if pbar.format_dict['rate'] and total_coordinates else 0
-                state.execution_progress = (i + 1, total_coordinates, estimated_remaining_time, elapsed_time)
+                state.execution_progress = progress_info
                 
                 # Add a small delay to allow other async operations
                 await asyncio.sleep(0.001)
@@ -450,7 +454,7 @@ def stop_actions(clear_playlist = True):
         # Ensure we still update machine position even if there's an error
         connection_manager.update_machine_position()
 
-def move_polar(theta, rho):
+def move_polar(theta, rho, progress_info=None):
     """
     This functions take in a pair of theta rho coordinate, compute the distance to travel based on current theta, rho,
     and translate the motion to gcode jog command and sent to grbl. 
@@ -506,6 +510,23 @@ def move_polar(theta, rho):
     state.current_rho = rho
     state.machine_x = new_x_abs
     state.machine_y = new_y_abs
+    
+    # Sync LEDs with ball position if LED controller is available and position sync is enabled
+    if hasattr(state, 'led_controller') and state.led_controller and hasattr(state.led_controller, 'position_sync_enabled'):
+        if state.led_controller.position_sync_enabled:
+            try:
+                # Calculate movement speed for speed-based effects
+                movement_speed = abs(delta_theta) + abs(delta_rho)
+                
+                # Calculate progress if progress_info is provided
+                progress = None
+                if progress_info:
+                    current_coord, total_coords, _, _ = progress_info
+                    progress = current_coord / total_coords if total_coords > 0 else 0
+                
+                state.led_controller.sync_position(theta, rho, progress=progress, speed=movement_speed)
+            except Exception as e:
+                logger.debug(f"LED position sync error: {e}")
     
 def pause_execution():
     """Pause pattern execution using asyncio Event."""

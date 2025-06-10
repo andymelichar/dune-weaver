@@ -100,6 +100,13 @@ class WLEDRequest(BaseModel):
 class DeletePlaylistRequest(BaseModel):
     playlist_name: str
 
+class PositionSyncRequest(BaseModel):
+    enabled: bool
+
+class PositionSyncConfigRequest(BaseModel):
+    sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail"
+    throttle_ms: Optional[int] = 50  # Minimum ms between sync updates
+
 # Store active WebSocket connections
 active_status_connections = set()
 
@@ -579,6 +586,10 @@ async def update_software():
 async def set_wled_ip(request: WLEDRequest):
     state.wled_ip = request.wled_ip
     state.led_controller = LEDController(request.wled_ip)
+    # Restore position sync settings if they exist
+    if hasattr(state, 'position_sync_enabled'):
+        state.led_controller.enable_position_sync(state.position_sync_enabled, state.position_sync_mode)
+        state.led_controller.sync_throttle_ms = state.position_sync_throttle_ms
     effect_idle(state.led_controller)
     state.save()
     logger.info(f"WLED IP updated: {request.wled_ip}")
@@ -589,6 +600,80 @@ async def get_wled_ip():
     if not state.wled_ip:
         raise HTTPException(status_code=404, detail="No WLED IP set")
     return {"success": True, "wled_ip": state.wled_ip}
+
+@app.post("/set_position_sync")
+async def set_position_sync(request: PositionSyncRequest):
+    """Enable or disable position-based LED synchronization"""
+    try:
+        if not state.led_controller:
+            logger.warning("Attempted to set position sync without LED controller")
+            raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
+        
+        state.led_controller.enable_position_sync(request.enabled)
+        state.save()
+        logger.info(f"Position sync {'enabled' if request.enabled else 'disabled'}")
+        return {
+            "success": True, 
+            "position_sync_enabled": request.enabled,
+            "sync_mode": state.led_controller.sync_mode
+        }
+    except Exception as e:
+        logger.error(f"Failed to set position sync: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get_position_sync_status")
+async def get_position_sync_status():
+    """Get current position sync status and configuration"""
+    try:
+        if not state.led_controller:
+            return {
+                "success": True,
+                "enabled": False,
+                "led_controller_configured": False,
+                "sync_mode": None,
+                "throttle_ms": None
+            }
+        
+        return {
+            "success": True,
+            "enabled": state.led_controller.position_sync_enabled,
+            "led_controller_configured": True,
+            "sync_mode": state.led_controller.sync_mode,
+            "throttle_ms": state.led_controller.sync_throttle_ms
+        }
+    except Exception as e:
+        logger.error(f"Failed to get position sync status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/configure_position_sync")
+async def configure_position_sync(request: PositionSyncConfigRequest):
+    """Configure position sync mode and throttling settings"""
+    try:
+        if not state.led_controller:
+            logger.warning("Attempted to configure position sync without LED controller")
+            raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
+        
+        # Validate sync mode
+        valid_modes = ["position", "speed", "progress", "trail"]
+        if request.sync_mode not in valid_modes:
+            raise HTTPException(status_code=400, detail=f"Invalid sync mode. Must be one of: {valid_modes}")
+        
+        # Update configuration
+        state.led_controller.sync_mode = request.sync_mode
+        if request.throttle_ms is not None:
+            state.led_controller.sync_throttle_ms = max(10, min(1000, request.throttle_ms))  # Clamp between 10-1000ms
+        
+        state.save()
+        logger.info(f"Position sync configured: mode={request.sync_mode}, throttle={state.led_controller.sync_throttle_ms}ms")
+        
+        return {
+            "success": True,
+            "sync_mode": state.led_controller.sync_mode,
+            "throttle_ms": state.led_controller.sync_throttle_ms
+        }
+    except Exception as e:
+        logger.error(f"Failed to configure position sync: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/skip_pattern")
 async def skip_pattern():

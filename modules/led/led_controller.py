@@ -3,12 +3,18 @@ import json
 from typing import Dict, Optional
 import time
 import logging
+import math
+import colorsys
 logger = logging.getLogger(__name__)
 
 
 class LEDController:
     def __init__(self, ip_address: Optional[str] = None):
         self.ip_address = ip_address
+        self.position_sync_enabled = False
+        self.sync_mode = "position"  # Options: "position", "speed", "progress", "trail"
+        self.last_sync_time = 0
+        self.sync_throttle_ms = 50  # Minimum ms between sync updates
 
     def _get_base_url(self) -> str:
         """Get base URL for WLED JSON API"""
@@ -233,6 +239,133 @@ def effect_connected(led_controller: LEDController):
         return True
     else:
         return False
+
+    def enable_position_sync(self, enabled: bool = True, mode: str = "position") -> None:
+        """
+        Enable or disable position-based LED sync
+        Args:
+            enabled: Whether to enable position sync
+            mode: Sync mode - "position", "speed", "progress", or "trail"
+        """
+        self.position_sync_enabled = enabled
+        if mode in ["position", "speed", "progress", "trail"]:
+            self.sync_mode = mode
+        logger.info(f"Position sync {'enabled' if enabled else 'disabled'} with mode: {self.sync_mode}")
+
+    def _should_sync(self) -> bool:
+        """Check if enough time has passed since last sync to avoid overwhelming WLED"""
+        current_time = time.time() * 1000  # Convert to ms
+        if current_time - self.last_sync_time >= self.sync_throttle_ms:
+            self.last_sync_time = current_time
+            return True
+        return False
+
+    def _theta_to_hue(self, theta: float) -> int:
+        """Convert theta (radians) to HSV hue (0-360)"""
+        # Normalize theta to 0-2π range
+        normalized_theta = theta % (2 * math.pi)
+        # Convert to 0-360 degree range
+        hue = int((normalized_theta / (2 * math.pi)) * 360)
+        return hue
+
+    def _rho_to_brightness(self, rho: float, min_brightness: int = 30, max_brightness: int = 255) -> int:
+        """Convert rho (0-1) to brightness with minimum threshold"""
+        # Ensure rho is in 0-1 range
+        rho = max(0.0, min(1.0, rho))
+        # Map to brightness range with minimum threshold
+        brightness = int(min_brightness + (rho * (max_brightness - min_brightness)))
+        return brightness
+
+    def _hsv_to_rgb(self, h: float, s: float, v: float) -> tuple:
+        """Convert HSV to RGB values (0-255)"""
+        r, g, b = colorsys.hsv_to_rgb(h / 360.0, s, v)
+        return int(r * 255), int(g * 255), int(b * 255)
+
+    def sync_position(self, theta: float, rho: float, progress: float = None, speed: float = None) -> Dict:
+        """
+        Sync LEDs with ball position
+        Args:
+            theta: Angular position in radians
+            rho: Radial position (0=center, 1=perimeter)
+            progress: Optional pattern progress (0-1)
+            speed: Optional movement speed for dynamic effects
+        """
+        if not self.position_sync_enabled or not self._should_sync():
+            return {"message": "Position sync disabled or throttled"}
+
+        try:
+            if self.sync_mode == "position":
+                return self._sync_position_mode(theta, rho)
+            elif self.sync_mode == "speed":
+                return self._sync_speed_mode(theta, rho, speed or 0)
+            elif self.sync_mode == "progress":
+                return self._sync_progress_mode(theta, rho, progress or 0)
+            elif self.sync_mode == "trail":
+                return self._sync_trail_mode(theta, rho)
+            else:
+                return {"message": f"Unknown sync mode: {self.sync_mode}"}
+        except Exception as e:
+            logger.error(f"Error in position sync: {e}")
+            return {"connected": False, "message": f"Position sync error: {str(e)}"}
+
+    def _sync_position_mode(self, theta: float, rho: float) -> Dict:
+        """Position-based color mapping: hue from angle, brightness from radius"""
+        hue = self._theta_to_hue(theta)
+        brightness = self._rho_to_brightness(rho)
+        r, g, b = self._hsv_to_rgb(hue, 1.0, 1.0)  # Full saturation
+        
+        return self.set_effect(
+            effect_index=0,  # Solid color
+            r=r, g=g, b=b,
+            brightness=brightness,
+            transition=0  # Instant change for smooth tracking
+        )
+
+    def _sync_speed_mode(self, theta: float, rho: float, speed: float) -> Dict:
+        """Speed-based effects: faster movement = more intense effects"""
+        hue = self._theta_to_hue(theta)
+        # Map speed to effect intensity and speed
+        effect_speed = min(255, int(abs(speed) * 50))  # Scale speed appropriately
+        effect_intensity = min(255, int(abs(speed) * 100))
+        brightness = self._rho_to_brightness(rho)
+        r, g, b = self._hsv_to_rgb(hue, 1.0, 1.0)
+        
+        return self.set_effect(
+            effect_index=47,  # Scanner effect that responds well to speed
+            r=r, g=g, b=b,
+            speed=effect_speed,
+            intensity=effect_intensity,
+            brightness=brightness
+        )
+
+    def _sync_progress_mode(self, theta: float, rho: float, progress: float) -> Dict:
+        """Progress-based lighting: color transitions based on pattern completion"""
+        # Shift hue based on progress (red -> yellow -> green -> blue -> purple)
+        base_hue = self._theta_to_hue(theta)
+        progress_hue = (base_hue + int(progress * 120)) % 360  # 120 degree shift over progress
+        brightness = self._rho_to_brightness(rho)
+        r, g, b = self._hsv_to_rgb(progress_hue, 1.0, 1.0)
+        
+        return self.set_effect(
+            effect_index=0,  # Solid color
+            r=r, g=g, b=b,
+            brightness=brightness
+        )
+
+    def _sync_trail_mode(self, theta: float, rho: float) -> Dict:
+        """Trail effect: creates a comet-like trailing effect"""
+        hue = self._theta_to_hue(theta)
+        brightness = self._rho_to_brightness(rho)
+        r, g, b = self._hsv_to_rgb(hue, 1.0, 1.0)
+        
+        return self.set_effect(
+            effect_index=28,  # Comet effect
+            r=r, g=g, b=b,
+            speed=150,  # Moderate speed for smooth trail
+            intensity=200,  # High intensity for visible trail
+            brightness=brightness
+        )
+
 
 def effect_playing(led_controller: LEDController):
     led_controller.set_preset(2)
