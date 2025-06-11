@@ -49,6 +49,9 @@ class AppState:
         self.position_sync_enabled = False
         self.position_sync_mode = "position"
         self.position_sync_throttle_ms = 50
+        # Localized mode settings
+        self.led_total_leds = 60
+        self.led_segment_width = 8
         self.load()
 
     @property
@@ -164,7 +167,9 @@ class AppState:
             "wled_ip": self.wled_ip,
             "position_sync_enabled": self.position_sync_enabled,
             "position_sync_mode": self.position_sync_mode,
-            "position_sync_throttle_ms": self.position_sync_throttle_ms
+            "position_sync_throttle_ms": self.position_sync_throttle_ms,
+            "led_total_leds": self.led_total_leds,
+            "led_segment_width": self.led_segment_width
         }
 
     def from_dict(self, data):
@@ -195,6 +200,9 @@ class AppState:
         self.position_sync_enabled = data.get("position_sync_enabled", False)
         self.position_sync_mode = data.get("position_sync_mode", "position")
         self.position_sync_throttle_ms = data.get("position_sync_throttle_ms", 50)
+        # Localized mode settings with defaults
+        self.led_total_leds = data.get("led_total_leds", 60)
+        self.led_segment_width = data.get("led_segment_width", 8)
 
     def save(self):
         """Save the current state to a JSON file."""

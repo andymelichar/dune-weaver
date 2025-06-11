@@ -104,8 +104,12 @@ class PositionSyncRequest(BaseModel):
     enabled: bool
 
 class PositionSyncConfigRequest(BaseModel):
-    sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail", "demo"
+    sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail", "demo", "localized"
     throttle_ms: Optional[int] = 50  # Minimum ms between sync updates
+
+class LocalizedModeConfigRequest(BaseModel):
+    total_leds: int = 60  # Total number of LEDs in strip
+    segment_width: int = 8  # Number of LEDs to light up around ball position
 
 # Store active WebSocket connections
 active_status_connections = set()
@@ -590,6 +594,9 @@ async def set_wled_ip(request: WLEDRequest):
     if hasattr(state, 'position_sync_enabled'):
         state.led_controller.enable_position_sync(state.position_sync_enabled, state.position_sync_mode)
         state.led_controller.sync_throttle_ms = state.position_sync_throttle_ms
+        # Restore localized mode settings
+        if hasattr(state, 'led_total_leds'):
+            state.led_controller.configure_localized_mode(state.led_total_leds, state.led_segment_width)
     effect_idle(state.led_controller)
     state.save()
     logger.info(f"WLED IP updated: {request.wled_ip}")
@@ -654,7 +661,7 @@ async def configure_position_sync(request: PositionSyncConfigRequest):
             raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
         
         # Validate sync mode
-        valid_modes = ["position", "speed", "progress", "trail", "demo"]
+        valid_modes = ["position", "speed", "progress", "trail", "demo", "localized"]
         if request.sync_mode not in valid_modes:
             raise HTTPException(status_code=400, detail=f"Invalid sync mode. Must be one of: {valid_modes}")
         
@@ -739,6 +746,57 @@ async def test_wled_direct():
         }
     except Exception as e:
         logger.error(f"Failed to test WLED directly: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/configure_localized_mode")
+async def configure_localized_mode(request: LocalizedModeConfigRequest):
+    """Configure parameters for localized LED mode"""
+    try:
+        if not state.led_controller:
+            raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
+        
+        # Validate parameters
+        if request.total_leds < 1 or request.total_leds > 1000:
+            raise HTTPException(status_code=400, detail="total_leds must be between 1 and 1000")
+        
+        if request.segment_width < 1 or request.segment_width > request.total_leds:
+            raise HTTPException(status_code=400, detail="segment_width must be between 1 and total_leds")
+        
+        # Configure the LED controller
+        state.led_controller.configure_localized_mode(request.total_leds, request.segment_width)
+        state.save()
+        
+        logger.info(f"Localized mode configured: {request.total_leds} LEDs, segment width {request.segment_width}")
+        
+        return {
+            "success": True,
+            "total_leds": state.led_controller.total_leds,
+            "segment_width": state.led_controller.segment_width
+        }
+    except Exception as e:
+        logger.error(f"Failed to configure localized mode: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get_localized_mode_config")
+async def get_localized_mode_config():
+    """Get current localized mode configuration"""
+    try:
+        if not state.led_controller:
+            return {
+                "success": True,
+                "led_controller_configured": False,
+                "total_leds": None,
+                "segment_width": None
+            }
+        
+        return {
+            "success": True,
+            "led_controller_configured": True,
+            "total_leds": getattr(state.led_controller, 'total_leds', 60),
+            "segment_width": getattr(state.led_controller, 'segment_width', 8)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get localized mode config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/skip_pattern")

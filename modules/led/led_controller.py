@@ -12,9 +12,12 @@ class LEDController:
     def __init__(self, ip_address: Optional[str] = None):
         self.ip_address = ip_address
         self.position_sync_enabled = False
-        self.sync_mode = "position"  # Options: "position", "speed", "progress", "trail"
+        self.sync_mode = "position"  # Options: "position", "speed", "progress", "trail", "demo", "localized"
         self.last_sync_time = 0
         self.sync_throttle_ms = 50  # Minimum ms between sync updates
+        # Localized mode configuration
+        self.total_leds = 60  # Total number of LEDs in strip
+        self.segment_width = 8  # Number of LEDs to light up around ball position
 
     def _get_base_url(self) -> str:
         """Get base URL for WLED JSON API"""
@@ -224,9 +227,20 @@ class LEDController:
             mode: Sync mode - "position", "speed", "progress", or "trail"
         """
         self.position_sync_enabled = enabled
-        if mode in ["position", "speed", "progress", "trail", "demo"]:
+        if mode in ["position", "speed", "progress", "trail", "demo", "localized"]:
             self.sync_mode = mode
         logger.info(f"Position sync {'enabled' if enabled else 'disabled'} with mode: {self.sync_mode}")
+
+    def configure_localized_mode(self, total_leds: int = 60, segment_width: int = 8) -> None:
+        """
+        Configure parameters for localized mode
+        Args:
+            total_leds: Total number of LEDs in the strip
+            segment_width: Number of LEDs to light up around the ball position
+        """
+        self.total_leds = max(1, total_leds)  # Ensure at least 1 LED
+        self.segment_width = max(1, min(segment_width, total_leds))  # Ensure valid segment width
+        logger.info(f"Localized mode configured: {self.total_leds} LEDs, segment width {self.segment_width}")
 
     def _should_sync(self) -> bool:
         """Check if enough time has passed since last sync to avoid overwhelming WLED"""
@@ -283,6 +297,8 @@ class LEDController:
                 return self._sync_trail_mode(theta, rho)
             elif self.sync_mode == "demo":
                 return self._sync_demo_mode(theta, rho)
+            elif self.sync_mode == "localized":
+                return self._sync_localized_mode(theta, rho)
             else:
                 return {"message": f"Unknown sync mode: {self.sync_mode}"}
         except Exception as e:
@@ -378,6 +394,95 @@ class LEDController:
             brightness=brightness,
             transition=0  # Instant change
         )
+
+    def _sync_localized_mode(self, theta: float, rho: float) -> Dict:
+        """Localized mode: Only light up LEDs near the ball's angular position"""
+        # Configuration for LED strip
+        total_leds = getattr(self, 'total_leds', 60)  # Default to 60 LEDs, can be configured
+        segment_width = getattr(self, 'segment_width', 8)  # How many LEDs to light up around the position
+        
+        # Convert theta (0 to 2π) to LED position (0 to total_leds-1)
+        normalized_theta = theta % (2 * math.pi)
+        led_position = int((normalized_theta / (2 * math.pi)) * total_leds)
+        
+        # Calculate segment boundaries
+        half_width = segment_width // 2
+        start_led = (led_position - half_width) % total_leds
+        end_led = (led_position + half_width) % total_leds
+        
+        # Get color based on position
+        hue = self._theta_to_hue(theta)
+        brightness = self._rho_to_brightness(rho)
+        r, g, b = self._hsv_to_rgb(hue, 1.0, 1.0)
+        
+        logger.info(f"LOCALIZED MODE: theta={theta:.3f} -> LED {led_position}/{total_leds}, segment {start_led}-{end_led}, rho={rho:.3f} -> brightness={brightness}")
+        
+        try:
+            # Create segments: one for the active area, one for the rest
+            if start_led <= end_led:
+                # Normal case: segment doesn't wrap around
+                segments = [
+                    {
+                        "start": 0,
+                        "stop": start_led - 1 if start_led > 0 else 0,
+                        "col": [[0, 0, 0]],  # Off
+                        "fx": 0
+                    },
+                    {
+                        "start": start_led,
+                        "stop": end_led,
+                        "col": [[r, g, b]],  # Ball color
+                        "fx": 0
+                    },
+                    {
+                        "start": end_led + 1,
+                        "stop": total_leds - 1,
+                        "col": [[0, 0, 0]],  # Off
+                        "fx": 0
+                    }
+                ]
+            else:
+                # Wrap-around case: segment crosses the 0/max boundary
+                segments = [
+                    {
+                        "start": 0,
+                        "stop": end_led,
+                        "col": [[r, g, b]],  # Ball color (end part)
+                        "fx": 0
+                    },
+                    {
+                        "start": end_led + 1,
+                        "stop": start_led - 1,
+                        "col": [[0, 0, 0]],  # Off (middle)
+                        "fx": 0
+                    },
+                    {
+                        "start": start_led,
+                        "stop": total_leds - 1,
+                        "col": [[r, g, b]],  # Ball color (start part)
+                        "fx": 0
+                    }
+                ]
+            
+            # Filter out invalid segments (where start > stop in normal case)
+            valid_segments = []
+            for seg in segments:
+                if seg["start"] <= seg["stop"]:
+                    valid_segments.append(seg)
+            
+            # Send command to WLED
+            state_params = {
+                "seg": valid_segments,
+                "bri": brightness,
+                "transition": 0
+            }
+            
+            return self._send_command(state_params)
+            
+        except Exception as e:
+            logger.error(f"Error in localized mode: {e}")
+            # Fallback to regular position mode
+            return self._sync_position_mode(theta, rho)
 
 
 def effect_loading(led_controller: LEDController):
