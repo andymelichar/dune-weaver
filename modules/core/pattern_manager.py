@@ -500,6 +500,12 @@ def move_polar(theta, rho, progress_info=None):
     else:
         y_increment += offset
     
+    # Ensure machine position is initialized (handle None values)
+    if state.machine_x is None:
+        state.machine_x = 0.0
+    if state.machine_y is None:
+        state.machine_y = 0.0
+        
     new_x_abs = state.machine_x + x_increment
     new_y_abs = state.machine_y + y_increment
     
