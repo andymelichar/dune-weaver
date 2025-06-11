@@ -105,7 +105,7 @@ class PositionSyncRequest(BaseModel):
 
 class PositionSyncConfigRequest(BaseModel):
     sync_mode: str = "position"  # Options: "position", "speed", "progress", "trail", "demo", "localized"
-    throttle_ms: Optional[int] = 50  # Minimum ms between sync updates
+    throttle_ms: Optional[int] = 20  # Minimum ms between sync updates (reduced for better responsiveness)
 
 class LocalizedModeConfigRequest(BaseModel):
     total_leds: int = 60  # Total number of LEDs in strip

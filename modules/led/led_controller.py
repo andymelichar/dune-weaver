@@ -14,7 +14,7 @@ class LEDController:
         self.position_sync_enabled = False
         self.sync_mode = "position"  # Options: "position", "speed", "progress", "trail", "demo", "localized"
         self.last_sync_time = 0
-        self.sync_throttle_ms = 50  # Minimum ms between sync updates
+        self.sync_throttle_ms = 20  # Minimum ms between sync updates (reduced for better responsiveness)
         # Localized mode configuration
         self.total_leds = 60  # Total number of LEDs in strip
         self.segment_width = 8  # Number of LEDs to light up around ball position
@@ -249,6 +249,32 @@ class LEDController:
             self.last_sync_time = current_time
             return True
         return False
+    
+    def _should_sync_with_position_check(self, theta: float, rho: float) -> bool:
+        """Advanced throttling that considers position changes"""
+        current_time = time.time() * 1000
+        
+        # Always sync if enough time has passed
+        if current_time - self.last_sync_time >= self.sync_throttle_ms:
+            self.last_sync_time = current_time
+            self._last_theta = theta
+            self._last_rho = rho
+            return True
+        
+        # Also sync if position changed significantly (even if time hasn't passed)
+        if hasattr(self, '_last_theta') and hasattr(self, '_last_rho'):
+            theta_change = abs(theta - self._last_theta)
+            rho_change = abs(rho - self._last_rho)
+            
+            # Sync if position changed significantly
+            significant_change_threshold = 0.1  # About 6 degrees or 10% radius change
+            if theta_change > significant_change_threshold or rho_change > significant_change_threshold:
+                self.last_sync_time = current_time
+                self._last_theta = theta
+                self._last_rho = rho
+                return True
+        
+        return False
 
     def _theta_to_hue(self, theta: float) -> int:
         """Convert theta (radians) to HSV hue (0-360)"""
@@ -280,10 +306,17 @@ class LEDController:
             progress: Optional pattern progress (0-1)
             speed: Optional movement speed for dynamic effects
         """
-        logger.info(f"🔧 sync_position called: enabled={self.position_sync_enabled}, should_sync={self._should_sync()}")
+        # Use smarter throttling, but disable for localized mode if throttle is very low
+        if self.sync_mode == "localized" and self.sync_throttle_ms <= 10:
+            should_sync = True  # No throttling for localized mode with low throttle
+        else:
+            should_sync = self._should_sync_with_position_check(theta, rho)
+        
+        logger.debug(f"🔧 sync_position called: enabled={self.position_sync_enabled}, should_sync={should_sync}, mode={self.sync_mode}")
+        
         if not self.position_sync_enabled:
             return {"message": "Position sync disabled"}
-        if not self._should_sync():
+        if not should_sync:
             return {"message": "Position sync throttled"}
 
         try:
