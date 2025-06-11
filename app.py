@@ -713,6 +713,34 @@ async def test_position_sync(request: CoordinateRequest):
         logger.error(f"Failed to test position sync: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/test_wled_direct")
+async def test_wled_direct():
+    """Test WLED connection by sending a direct color command"""
+    try:
+        if not state.led_controller:
+            raise HTTPException(status_code=400, detail="No LED controller configured. Set WLED IP first.")
+        
+        logger.info("Testing direct WLED command...")
+        
+        # Send a bright red color directly
+        result = state.led_controller.set_effect(
+            effect_index=0,  # Solid color
+            r=255, g=0, b=0,  # Bright red
+            brightness=200,
+            transition=0
+        )
+        
+        logger.info(f"Direct WLED test result: {result}")
+        
+        return {
+            "success": True,
+            "test": "bright_red_solid",
+            "result": result
+        }
+    except Exception as e:
+        logger.error(f"Failed to test WLED directly: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/skip_pattern")
 async def skip_pattern():
     if not state.current_playlist:

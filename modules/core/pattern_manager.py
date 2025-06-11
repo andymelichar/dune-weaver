@@ -518,8 +518,10 @@ def move_polar(theta, rho, progress_info=None):
     state.machine_y = new_y_abs
     
     # Sync LEDs with ball position if LED controller is available and position sync is enabled
+    logger.info(f"🔍 POSITION SYNC CHECK: led_controller exists: {state.led_controller is not None}")
     if hasattr(state, 'led_controller') and state.led_controller and hasattr(state.led_controller, 'position_sync_enabled'):
-        logger.debug(f"LED controller available, position_sync_enabled: {state.led_controller.position_sync_enabled}")
+        logger.info(f"🔍 LED controller available, position_sync_enabled: {state.led_controller.position_sync_enabled}")
+        logger.info(f"🔍 Current sync mode: {getattr(state.led_controller, 'sync_mode', 'UNKNOWN')}")
         if state.led_controller.position_sync_enabled:
             try:
                 # Calculate movement speed for speed-based effects
@@ -531,13 +533,15 @@ def move_polar(theta, rho, progress_info=None):
                     current_coord, total_coords, _, _ = progress_info
                     progress = current_coord / total_coords if total_coords > 0 else 0
                 
-                logger.debug(f"Syncing LED position: theta={theta:.3f}, rho={rho:.3f}, mode={state.led_controller.sync_mode}")
+                logger.info(f"🎯 SYNCING LED: theta={theta:.3f}, rho={rho:.3f}, mode={state.led_controller.sync_mode}, progress={progress}")
                 result = state.led_controller.sync_position(theta, rho, progress=progress, speed=movement_speed)
-                logger.debug(f"LED sync result: {result}")
+                logger.info(f"🎯 LED sync result: {result}")
             except Exception as e:
-                logger.error(f"LED position sync error: {e}")
+                logger.error(f"❌ LED position sync error: {e}")
+                import traceback
+                logger.error(f"❌ Full traceback: {traceback.format_exc()}")
     else:
-        logger.debug(f"LED sync not available - led_controller: {state.led_controller}, has_position_sync: {hasattr(state.led_controller, 'position_sync_enabled') if state.led_controller else False}")
+        logger.info(f"❌ LED sync not available - led_controller: {state.led_controller is not None if state.led_controller else False}, has_position_sync: {hasattr(state.led_controller, 'position_sync_enabled') if state.led_controller else False}")
     
 def pause_execution():
     """Pause pattern execution using asyncio Event."""

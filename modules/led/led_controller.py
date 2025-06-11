@@ -266,8 +266,11 @@ class LEDController:
             progress: Optional pattern progress (0-1)
             speed: Optional movement speed for dynamic effects
         """
-        if not self.position_sync_enabled or not self._should_sync():
-            return {"message": "Position sync disabled or throttled"}
+        logger.info(f"🔧 sync_position called: enabled={self.position_sync_enabled}, should_sync={self._should_sync()}")
+        if not self.position_sync_enabled:
+            return {"message": "Position sync disabled"}
+        if not self._should_sync():
+            return {"message": "Position sync throttled"}
 
         try:
             if self.sync_mode == "position":
